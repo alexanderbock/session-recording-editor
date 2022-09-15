@@ -124,7 +124,7 @@ SessionRecording* loadSessionRecording(std::filesystem::path path) {
         info.kf = kf;
         res->normalizedLinearizedScale.push_back(info);
     }
-    res->originalNormalizedLinearizedScale = res->normalizedLinearizedScale;
+    res->originalNormalizedScale = res->normalizedLinearizedScale;
 
     // remove keyframes that are represented by linear interpolation
     for (size_t i = 1; i < res->normalizedLinearizedScale.size() - 1; i += 1) {
@@ -156,6 +156,13 @@ SessionRecording* loadSessionRecording(std::filesystem::path path) {
 
 void saveSessionRecording(SessionRecording* session, std::filesystem::path path) {
     std::ofstream f(path);
+    if (!f.good()) {
+        QMessageBox::critical(nullptr, "Error loading session recording",
+            QString::fromStdString("Could not save session recording. Path incorrect?")
+        );
+    }
+    f.precision(20);
+    f << std::fixed;
 
     f << "OpenSpace_record/playback01.00A\n";
     for (Keyframe* v : session->keyframes) {
@@ -163,26 +170,26 @@ void saveSessionRecording(SessionRecording* session, std::filesystem::path path)
             KeyframeCamera* kf = static_cast<KeyframeCamera*>(v);
 
             f << "camera ";
-            f << std::to_string(kf->startupTime) << ' ';
-            f << std::to_string(kf->recordingTime) << ' ';
-            f << std::to_string(kf->ingameTime) << ' ';
-            f << std::to_string(kf->posX) << ' ';
-            f << std::to_string(kf->posY) << ' ';
-            f << std::to_string(kf->posZ) << ' ';
-            f << std::to_string(kf->orientationW) << ' ';
-            f << std::to_string(kf->orientationX) << ' ';
-            f << std::to_string(kf->orientationY) << ' ';
-            f << std::to_string(kf->orientationZ) << ' ';
-            f << std::to_string(kf->scale) << ' ';
+            f << kf->startupTime << ' ';
+            f << kf->recordingTime << ' ';
+            f << kf->ingameTime << ' ';
+            f << kf->posX << ' ';
+            f << kf->posY << ' ';
+            f << kf->posZ << ' ';
+            f << kf->orientationW << ' ';
+            f << kf->orientationX << ' ';
+            f << kf->orientationY << ' ';
+            f << kf->orientationZ << ' ';
+            f << kf->scale << ' ';
             f << (kf->shouldFollow ? "F" : "-") << ' ';
             f << kf->followNode << '\n';
         }
         else {
             KeyframeScript* kf = static_cast<KeyframeScript*>(v);
             f << "script ";
-            f << std::to_string(kf->startupTime) << ' ';
-            f << std::to_string(kf->recordingTime) << ' ';
-            f << std::to_string(kf->ingameTime) << ' ';
+            f << kf->startupTime << ' ';
+            f << kf->recordingTime << ' ';
+            f << kf->ingameTime << ' ';
             f << "1 ";
             f << kf->script << '\n';
         }

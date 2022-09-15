@@ -2,17 +2,23 @@
 
 #include "mainwindow.h"
 #include "sessionrecording.h"
+#include <QDoubleValidator>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QResizeEvent>
+#include <QSlider>
 #include <QVBoxLayout>
 
-// @TODO graphicsitem z-level for lines and items
+namespace {
+    constexpr const int MaximumValue = 1000;
+} // namespace
 
-ScaleItem::ScaleItem(KeyframeCamera* keyframe, SessionRecording* recording, QColor color, 
+ScaleItem::ScaleItem(KeyframeCamera* kf, SessionRecording* recording, QColor color, 
                      double size)
-    : _keyframe(keyframe)
+    : _keyframe(kf)
     , _recording(recording)
     , _color(color)
     , _size(size)
@@ -26,10 +32,6 @@ QRectF ScaleItem::boundingRect() const {
     //qreal penWidth = 1;
     //return QRectF(-10 - penWidth / 2, -10 - penWidth / 2,
     //    20 + penWidth, 20 + penWidth);
-}
-
-void ScaleItem::hoverMoveEvent(QGraphicsSceneHoverEvent* event) {
-
 }
 
 void ScaleItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
@@ -70,40 +72,37 @@ void ScaleView::mouseMoveEvent(QMouseEvent* event) {
     );
 
     QPointF pt = event->pos();
+    QPointF scenePt = mapToScene(pt.x(), pt.y());
 
     if (_pickedItem) {
-        if (_pickedItem->_leftNeighbor && pt.x() <= _pickedItem->_leftNeighbor->scenePos().x()) return;
-        if (_pickedItem->_rightNeighbor && pt.x() >= _pickedItem->_rightNeighbor->scenePos().x()) return;
-
-        // If the first or last point is selected, we don't want to allow a change in x
-        if (_pickedItem->_leftNeighbor == nullptr || _pickedItem->_rightNeighbor == nullptr)  pt.rx() = _pickedItem->scenePos().x();
+        // We don't want the x coordinate to change
+        scenePt.rx() = _pickedItem->scenePos().x();
 
         // Update item position
-        _pickedItem->setPos(pt);
+        _pickedItem->setPos(scenePt);
 
         // Update connected lines
         if (_pickedItem->_leftLine) {
             QGraphicsLineItem* left = _pickedItem->_leftLine;
             QLineF leftLineOld = left->line();
-            QLineF leftLineNew = QLineF(leftLineOld.p1(), pt);
+            QLineF leftLineNew = QLineF(leftLineOld.p1(), scenePt);
             _pickedItem->_leftLine->setLine(leftLineNew);
         }
 
         if (_pickedItem->_rightLine) {
             QGraphicsLineItem* right = _pickedItem->_rightLine;
             QLineF rightLineOld = right->line();
-            QLineF rightLineNew = QLineF(pt, rightLineOld.p2());
+            QLineF rightLineNew = QLineF(scenePt, rightLineOld.p2());
             _pickedItem->_rightLine->setLine(rightLineNew);
         }
     }
     else {
         if (_recording) {
-            QPointF pt2 = mapToScene(pt.x(), pt.y());
             double length = _recording->recordingLength;
             std::pair<double, double> minMax = _recording->minMaxScale;
 
-            double x = pt2.x() * length;
-            double y = minMax.first + pt2.y() * (minMax.second - minMax.first);
+            double x = scenePt.x() * length;
+            double y = minMax.first + scenePt.y() * (minMax.second - minMax.first);
 
             _parent->_hoverInfo->setText(QString::number(x) + ", " + QString::number(y));
         }
@@ -115,8 +114,7 @@ void ScaleView::mouseDoubleClickEvent(QMouseEvent* event) {
 
     ScaleItem* prev = nullptr;
     ScaleItem* next = nullptr;
-    for (size_t i = 0; i < _parent->_items.size(); i += 1) {
-        ScaleItem* c = _parent->_items[i];
+    for (ScaleItem* c : _parent->_items) {
         if (c->scenePos().x() > pt.x()) {
             next = c;
             prev = next->_leftNeighbor;
@@ -125,13 +123,24 @@ void ScaleView::mouseDoubleClickEvent(QMouseEvent* event) {
     }
 
     assert(prev && next);
+
+    ScaleInfo s;
+    for (ScaleInfo si : _parent->_recording->originalNormalizedScale) {
+        if (si.x >= pt.x()) {
+            s = si;
+            break;
+        }
+    }
+    
     QPen pen;
     pen.setColor(Qt::black);
     pen.setWidthF(0.0025f);
     QGraphicsLineItem* line = scene()->addLine(QLineF(pt, next->scenePos()), pen);
+    line->setZValue(0);
 
-    ScaleItem* item = new ScaleItem(nullptr, _recording, Qt::white, 5.0);
-    item->setPos(pt);
+    ScaleItem* item = new ScaleItem(s.kf, _recording, Qt::white, 5.0);
+    item->setPos(s.x, pt.y());
+    item->setZValue(1);
     scene()->addItem(item);
     _parent->_items.push_back(item);
     std::sort(
@@ -170,6 +179,7 @@ void ScaleView::mousePressEvent(QMouseEvent* event) {
                 _pickedItem->_picked = true;
             }
             else if (event->button() == Qt::MouseButton::RightButton) {
+#if 0
                 // We dont' want to delete the border points
                 if (idx == 0 || idx == _parent->_items.size() - 1)  continue;
 
@@ -187,6 +197,7 @@ void ScaleView::mousePressEvent(QMouseEvent* event) {
                 delete i;
                 
                 if (idx > 0)  idx -= 1;
+#endif
             }
             scene()->update(sceneRect());
             return;
@@ -197,6 +208,13 @@ void ScaleView::mousePressEvent(QMouseEvent* event) {
     _pickedItem = nullptr;
     scene()->update(sceneRect());
 }
+
+void ScaleView::mouseReleaseEvent(QMouseEvent* event) {
+    if (_pickedItem)  _pickedItem->_picked = false;
+    _pickedItem = nullptr;
+    scene()->update(sceneRect());
+}
+
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
@@ -213,12 +231,40 @@ ScaleWidget::ScaleWidget(MainWindow* mainWindow, QWidget* parent)
     _view = new ScaleView(_scene, this, this, _recording);
     //_view->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
     _view->fitInView(_scene->sceneRect());
+    _view->scale(1, -1);
     _view->invalidateScene();
-
     layout->addWidget(_view);
 
-    _hoverInfo = new QLabel;
-    layout->addWidget(_hoverInfo);
+    {
+        QWidget* container = new QWidget;
+        QBoxLayout* containerLayout = new QHBoxLayout;
+
+        _hoverInfo = new QLabel;
+        containerLayout->addWidget(_hoverInfo);
+
+        _minValue = new QSlider(Qt::Orientation::Horizontal);
+        _minValue->setMinimum(-MaximumValue);
+        _minValue->setValue(0);
+        _minValue->setMaximum(MaximumValue);
+        connect(_minValue, &QSlider::valueChanged, this, &ScaleWidget::rescaleItems);
+        containerLayout->addWidget(_minValue);
+
+        _minValueText = new QLabel;
+        containerLayout->addWidget(_minValueText);
+
+        _maxValue = new QSlider(Qt::Orientation::Horizontal);
+        _maxValue->setMinimum(-MaximumValue);
+        _maxValue->setValue(0);
+        _maxValue->setMaximum(MaximumValue);
+        connect(_maxValue, &QSlider::valueChanged, this, &ScaleWidget::rescaleItems);
+        containerLayout->addWidget(_maxValue);
+
+        _maxValueText = new QLabel;
+        containerLayout->addWidget(_maxValueText);
+
+        container->setLayout(containerLayout);
+        layout->addWidget(container);
+    }
 
     setLayout(layout);
 }
@@ -230,50 +276,88 @@ void ScaleWidget::setSessionRecording(SessionRecording* recording) {
     _items.clear();
     _scene->clear();
 
-    struct Line {
-        QGraphicsLineItem* line;
-        KeyframeCamera* start;
-        KeyframeCamera* end;
-    };
-    std::vector<Line> lines;
-    for (size_t i = 0; i < recording->normalizedLinearizedScale.size() - 1; i += 1) {
-        ScaleInfo current = recording->normalizedLinearizedScale[i];
-        ScaleInfo next = recording->normalizedLinearizedScale[i + 1];
+    _minValueText->setText(QString::number(recording->minMaxScale.first, 'f', 12));
+    _maxValueText->setText(QString::number(recording->minMaxScale.second, 'f', 12));
+
+    for (ScaleInfo p : recording->normalizedLinearizedScale) {
+        ScaleItem* item = new ScaleItem(p.kf, _recording, Qt::white, 5.0);
+        item->setPos(p.x, p.y);
+        item->setZValue(1);
+        _scene->addItem(item);
+        _items.push_back(item);
+    }
+    
+    for (size_t i = 0; i < _items.size() - 1; i += 1) {
+        ScaleItem* curr = _items[i];
+        ScaleItem* next = _items[i+1];
+
+        curr->_rightNeighbor = next;
+        next->_leftNeighbor = curr;
 
         QPen pen;
         pen.setColor(Qt::black);
         pen.setWidthF(0.0025f);
-        QGraphicsLineItem* line = _scene->addLine(current.x, current.y, next.x, next.y, pen);
-        lines.push_back({ line, current.kf, next.kf });
-    }
-    for (ScaleInfo p : recording->normalizedLinearizedScale) {
-        ScaleItem* item = new ScaleItem(p.kf, _recording, Qt::white, 5.0);
-        item->setPos(p.x, p.y);
-        _scene->addItem(item);
-        _items.push_back(item);
-    }
+        QGraphicsLineItem* line = _scene->addLine(curr->pos().x(), curr->pos().y(), next->pos().x(), next->pos().y(), pen);
+        line->setZValue(0);
 
-    for (Line line : lines) {
-        for (ScaleItem* si : _items) {
-            KeyframeCamera* kf = si->_keyframe;
-            if (kf == line.start) {
-                assert(si->_rightLine == nullptr);
-                si->_rightLine = line.line;
-            }
-            else if (kf == line.end) {
-                assert(si->_leftLine == nullptr);
-                si->_leftLine = line.line;
-            }
-        }
-    }
-
-    for (size_t i = 0; i < _items.size(); i += 1) {
-        if (i > 0)  _items[i]->_leftNeighbor = _items[i-1];
-        if (i < _items.size() - 1) _items[i]->_rightNeighbor = _items[i+1];
+        curr->_rightLine = line;
+        next->_leftLine = line;
     }
 
     _view->fitInView(_scene->sceneRect());
     _view->invalidateScene();
+}
+
+void ScaleWidget::updateSessionRecording() {
+    std::pair<double, double> minMax = _recording->minMaxScale;
+
+    for (ScaleItem* i : _items) {
+        assert(i->_keyframe);
+        QPointF p = i->scenePos();
+        double y = minMax.first + p.y() * (minMax.second - minMax.first);
+        i->_keyframe->scale = y;
+
+    }
+    _view->fitInView(_scene->sceneRect());
+    _view->invalidateScene();
+}
+
+void ScaleWidget::rescaleItems() {
+    if (!_recording)  return;
+
+    double delta = (_recording->minMaxScale.second - _recording->minMaxScale.first) / MaximumValue;
+
+    std::pair<double, double> newMinMax;
+    newMinMax.first = _recording->minMaxScale.first + _minValue->value() * delta;
+    newMinMax.second = _recording->minMaxScale.second + _maxValue->value() * delta;
+
+    _minValueText->setText(QString::number(newMinMax.first, 'f', 15));
+    _maxValueText->setText(QString::number(newMinMax.second, 'f', 15));
+
+    if (newMinMax.first >= newMinMax.second)  return;
+
+    std::pair<double, double> oldMinMax = _recording->minMaxScale;
+    for (ScaleItem* item : _items) {
+        QPointF p = item->pos();
+        double y = oldMinMax.first + p.y() * (oldMinMax.second - oldMinMax.first);
+        double y2 = (y - newMinMax.first) / (newMinMax.second - newMinMax.first);
+        item->setPos(p.x(), y2);
+
+        if (item->_leftLine) {
+            QLineF line = item->_leftLine->line();
+            line.setP2(QPointF(p.x(), y2));
+            item->_leftLine->setLine(line);
+        }
+
+        if (item->_rightLine) {
+            QLineF line = item->_rightLine->line();
+            line.setP1(QPointF(p.x(), y2));
+            item->_rightLine->setLine(line);
+        }
+    }
+
+    _minValue->setValue(0);
+    _maxValue->setValue(0);
 }
 
 void ScaleWidget::dragEnterEvent(QDragEnterEvent* event) {

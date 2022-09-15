@@ -26,6 +26,7 @@ MainWindow::MainWindow() {
         QBoxLayout* containerLayout = new QHBoxLayout;
 
         _sourceFile = new QLineEdit;
+        _sourceFile->setReadOnly(true);
         _sourceFile->setPlaceholderText("Source recording path");
         containerLayout->addWidget(_sourceFile);
 
@@ -47,6 +48,7 @@ MainWindow::MainWindow() {
 
 void MainWindow::loadFile(std::string path) {
     _sessionRecording = loadSessionRecording(path);
+    _sourceFile->setText(QString::fromStdString(path));
 
     if (_sessionRecording)  _scaleWidget->setSessionRecording(_sessionRecording);
 }
@@ -63,5 +65,7 @@ void MainWindow::dropEvent(QDropEvent* event) {
 }
 
 void MainWindow::saveRecording() {
-
+    if (_destinationFile->text().isEmpty())  return;
+    _scaleWidget->updateSessionRecording();
+    saveSessionRecording(_sessionRecording, _destinationFile->text().toStdString());
 }

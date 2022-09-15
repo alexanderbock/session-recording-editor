@@ -5,6 +5,10 @@
 #include <vector>
 
 struct Keyframe {
+#ifdef _DEBUG
+    virtual ~Keyframe() = default;
+#endif
+
     enum class Type { Camera, Script };
     Type type;
 
@@ -45,7 +49,7 @@ struct SessionRecording {
     double recordingLength = 0.0;
     std::pair<double, double> minMaxScale;
 
-    std::vector<ScaleInfo> originalNormalizedLinearizedScale;
+    std::vector<ScaleInfo> originalNormalizedScale;
     std::vector<ScaleInfo> normalizedLinearizedScale;
 };
 
